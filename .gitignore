@@ -1,28 +1,12 @@
-# Environment
+# Secrets locaux (jamais commités — seul .env.example l'est)
 .env
 
 # Python
 __pycache__/
-*.py[cod]
-*.pyo
-
-# Virtual environments
+*.pyc
 .venv/
 venv/
-env/
+*.egg-info/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-Thumbs.db
-.DS_Store
-
-# Logs
-*.log
+# Docker
+docker-compose.override.yml
