@@ -61,11 +61,28 @@ services:
       start_period: 30s
 
   # --------------------------------------------------------------------
+  # kafka-init : conteneur "one-shot" -- s'exécute une seule fois pour
+  # créer les topics (orders-events, gps-events), puis s'arrête.
+  # Respecte la promesse "docker compose up sans intervention manuelle"
+  # (section 10) : plus besoin de créer les topics à la main via Kafbat.
+  # --------------------------------------------------------------------
+  kafka-init:
+    image: apache/kafka:3.8.0
+    container_name: delivery-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/kafka:/scripts
+    entrypoint: ["/bin/sh", "/scripts/create_topics.sh"]
+    restart: "no"
+
+  # --------------------------------------------------------------------
   # Kafbat : interface web pour observer les topics, messages, clés,
   # partitions — indispensable pour déboguer visuellement (section 10).
   # --------------------------------------------------------------------
   kafbat:
-    image: ghcr.io/kafbat/kafka-ui:1.1.0
+    image: ghcr.io/kafbat/kafka-ui:v1.1.0
     container_name: delivery-kafbat
     restart: unless-stopped
     ports:
