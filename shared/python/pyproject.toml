@@ -1,0 +1,15 @@
+[project]
+name = "delivery-shared"
+version = "0.1.0"
+description = "Code partagé entre les microservices du pipeline delivery-platform"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["delivery_shared*"]
