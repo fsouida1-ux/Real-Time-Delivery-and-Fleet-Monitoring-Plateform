@@ -43,3 +43,15 @@ def get_kafka_bootstrap_servers() -> str:
     localhost:9092 (le listener externe défini au Jour 1).
     """
     return os.environ["KAFKA_BOOTSTRAP_SERVERS"]
+
+
+def get_speed_threshold_kmh() -> float:
+    """
+    Retourne le seuil de vitesse (km/h) au-delà duquel un événement GPS
+    déclenche une alerte ANOMALOUS_SPEED (section 6.1 / 7.1 du cahier des
+    charges).
+
+    Valeur par défaut de secours (120) alignée sur .env (annexe 15.3), au
+    cas où la variable ne serait pas définie dans l'environnement.
+    """
+    return float(os.getenv("GPS_SPEED_THRESHOLD_KMH", "120"))

@@ -17,7 +17,11 @@ import logging
 from kafka import KafkaConsumer
 import psycopg2
 
-from delivery_shared.config import get_postgres_dsn, get_kafka_bootstrap_servers
+from delivery_shared.config import (
+    get_postgres_dsn,
+    get_kafka_bootstrap_servers,
+    get_speed_threshold_kmh,
+)
 from validation import validate_gps_event
 from cleaning import clean_gps_event
 
@@ -26,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 TOPIC = "gps-events"
 CONSUMER_GROUP = "delivery-processing-group"
+
+# Lu une seule fois au démarrage du module plutôt qu'à chaque message —
+# c'est une constante pour la durée de vie du process (pas besoin de
+# relire l'environnement à chaque événement traité).
+SPEED_THRESHOLD_KMH = get_speed_threshold_kmh()
 
 
 def build_consumer() -> KafkaConsumer:
@@ -113,7 +122,36 @@ def process_message(conn, event: dict) -> bool:
             ),
         )
 
-    # Les deux INSERT ci-dessus ne sont réellement gravés qu'ici, ensemble.
+        # 5. Business Rule rapide : ANOMALOUS_SPEED (section 6.1, étape 4)
+        #
+        # "Rapide" car elle ne dépend que de l'événement courant (cleaned),
+        # sans avoir besoin d'interroger l'historique en base — contrairement
+        # à DRIVER_INACTIVE / DELIVERY_DELAY (Jour 5, scan périodique) qui
+        # portent sur une absence ou un délai et ne peuvent pas être évaluées
+        # au passage d'un seul événement.
+        if cleaned["speed"] > SPEED_THRESHOLD_KMH:
+            logger.warning(
+                "ANOMALOUS_SPEED détectée: driver_id=%s speed=%.2f (seuil=%.0f)",
+                cleaned["driver_id"], cleaned["speed"], SPEED_THRESHOLD_KMH,
+            )
+            cur.execute(
+                """
+                INSERT INTO alerts (alert_type, driver_id, details)
+                VALUES (%s, %s, %s)
+                """,
+                (
+                    "ANOMALOUS_SPEED",
+                    cleaned["driver_id"],
+                    json.dumps({
+                        "speed": cleaned["speed"],
+                        "threshold": SPEED_THRESHOLD_KMH,
+                        "event_id": event_id,
+                    }),
+                ),
+            )
+
+    # Les INSERT ci-dessus (processed_events, driver_positions, et
+    # éventuellement alerts) ne sont réellement gravés qu'ici, ensemble.
     conn.commit()
     return True
 
