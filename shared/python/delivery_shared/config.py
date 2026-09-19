@@ -55,3 +55,8 @@ def get_speed_threshold_kmh() -> float:
     cas où la variable ne serait pas définie dans l'environnement.
     """
     return float(os.getenv("GPS_SPEED_THRESHOLD_KMH", "120"))
+
+def get_driver_inactive_minutes() -> int:
+    """Seuil d'inactivité (en minutes) avant de considérer un livreur inactif.
+    Lu depuis DRIVER_INACTIVE_MINUTES, défaut 5 si absent du .env."""
+    return int(os.getenv("DRIVER_INACTIVE_MINUTES", "5"))
