@@ -111,6 +111,54 @@ services:
       - METRICS_INTERVAL_SECONDS=${METRICS_INTERVAL_SECONDS}
     restart: unless-stopped
 
+  processing-consumer:
+    build:
+      context: .
+      dockerfile: services/processing-consumer/Dockerfile
+    container_name: delivery-processing-consumer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:19092
+      - GPS_SPEED_THRESHOLD_KMH=${GPS_SPEED_THRESHOLD_KMH}
+    restart: unless-stopped
+
+  db-producer:
+    build:
+      context: .
+      dockerfile: services/db-producer/Dockerfile
+    container_name: delivery-db-producer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:19092
+    restart: unless-stopped
+
+  gps-simulator:
+    build:
+      context: .
+      dockerfile: services/gps-simulator/Dockerfile
+    container_name: delivery-gps-simulator
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:19092
+    restart: unless-stopped
   # --------------------------------------------------------------------
   # Metabase : dashboard BI, se connectera UNIQUEMENT aux vues SQL
   # (reporting/views/), jamais directement aux tables (section 8-9).

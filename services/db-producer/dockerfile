@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY shared/python /shared/python
+RUN pip install --no-cache-dir -e /shared/python
+
+COPY services/db-producer/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY services/db-producer/src /app/src
+
+WORKDIR /app/src
+
+CMD ["python", "producer.py"]
