@@ -159,6 +159,21 @@ services:
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:19092
     restart: unless-stopped
+  
+  order-simulator:
+    build:
+      context: .
+      dockerfile: services/order-simulator/Dockerfile
+    container_name: delivery-order-simulator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    restart: unless-stopped
   # --------------------------------------------------------------------
   # Metabase : dashboard BI, se connectera UNIQUEMENT aux vues SQL
   # (reporting/views/), jamais directement aux tables (section 8-9).
