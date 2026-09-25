@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timedelta
 
 from db import get_connection
-from delivery_shared.config import get_driver_inactive_minutes
+from delivery_shared.config import get_driver_inactive_minutes, get_delivery_delay_minutes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,14 +75,92 @@ def scan_driver_inactive(cur, inactive_threshold_minutes):
 
     return len(inactive_drivers)
 
+def compute_delivery_metrics(cur, window_start, window_end):
+    """Agrège orders sur la fenêtre [window_start, window_end).
+
+    total_orders : commandes créées pendant la fenêtre (created_at).
+    delivered_orders : commandes passées à DELIVERED pendant la fenêtre (updated_at).
+    avg_delivery_min : durée moyenne créé->livré, calculée uniquement sur les
+    commandes livrées pendant cette fenêtre (sinon la moyenne mélangerait des
+    commandes en cours, sans durée de livraison encore connue).
+    """
+    cur.execute(
+        """
+        SELECT COUNT(*) FROM orders
+        WHERE created_at >= %s AND created_at < %s
+        """,
+        (window_start, window_end),
+    )
+    total_orders = cur.fetchone()[0]
+
+    cur.execute(
+        """
+        SELECT
+            COUNT(*),
+            AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 60.0)
+        FROM orders
+        WHERE status = 'DELIVERED'
+          AND updated_at >= %s AND updated_at < %s
+        """,
+        (window_start, window_end),
+    )
+    delivered_orders, avg_delivery_min = cur.fetchone()
+
+    cur.execute(
+        """
+        INSERT INTO delivery_metrics
+            (window_start, window_end, total_orders, delivered_orders, avg_delivery_min)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (window_start, window_end, total_orders, delivered_orders, avg_delivery_min),
+    )
+    logger.info(
+        "delivery_metrics : total=%s delivered=%s avg_delivery_min=%s",
+        total_orders, delivered_orders,
+        round(avg_delivery_min, 2) if avg_delivery_min is not None else None,
+    )
+
+def scan_delivery_delay(cur, delay_threshold_minutes):
+    """Détecte les commandes bloquées en DELIVERING trop longtemps.
+
+    Même principe que scan_driver_inactive() : une seule alerte par épisode
+    de retard (NOT EXISTS comparé à updated_at, pas une alerte à chaque cycle).
+    """
+    cur.execute(
+        """
+        SELECT o.order_id, o.driver_id, o.updated_at
+        FROM orders o
+        WHERE o.status = 'DELIVERING'
+          AND o.updated_at < now() - (%s || ' minutes')::interval
+          AND NOT EXISTS (
+              SELECT 1 FROM alerts a
+              WHERE a.order_id = o.order_id
+                AND a.alert_type = 'DELIVERY_DELAY'
+                AND a.created_at > o.updated_at
+          )
+        """,
+        (delay_threshold_minutes,),
+    )
+    delayed_orders = cur.fetchall()
+
+    for order_id, driver_id, updated_at in delayed_orders:
+        cur.execute(
+            "INSERT INTO alerts (alert_type, driver_id, order_id, details) VALUES (%s, %s, %s, %s)",
+            (
+                "DELIVERY_DELAY",
+                driver_id,
+                order_id,
+                json.dumps({"stuck_since": updated_at.isoformat()}),
+            ),
+        )
+        logger.info(
+            "Alerte DELIVERY_DELAY créée — order_id=%s, en DELIVERING depuis %s",
+            order_id, updated_at,
+        )
+
+    return len(delayed_orders)
 
 def run_cycle():
-    """Exécute un seul cycle : agrégation driver_metrics + scan DRIVER_INACTIVE.
-
-    Les deux opérations partagent la même transaction : si l'une échoue,
-    l'autre est annulée aussi (rollback), pour ne jamais laisser un cycle
-    à moitié appliqué.
-    """
     conn = get_connection()
     try:
         window_end = datetime.utcnow()
@@ -92,6 +170,8 @@ def run_cycle():
             logger.info("Cycle démarré — fenêtre %s → %s", window_start, window_end)
             compute_driver_metrics(cur, window_start, window_end)
             scan_driver_inactive(cur, get_driver_inactive_minutes())
+            compute_delivery_metrics(cur, window_start, window_end)
+            scan_delivery_delay(cur, get_delivery_delay_minutes())
 
         conn.commit()
         logger.info("Cycle terminé")

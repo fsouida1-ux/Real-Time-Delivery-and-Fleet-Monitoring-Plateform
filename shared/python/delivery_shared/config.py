@@ -60,3 +60,9 @@ def get_driver_inactive_minutes() -> int:
     """Seuil d'inactivité (en minutes) avant de considérer un livreur inactif.
     Lu depuis DRIVER_INACTIVE_MINUTES, défaut 5 si absent du .env."""
     return int(os.getenv("DRIVER_INACTIVE_MINUTES", "5"))
+
+def get_delivery_delay_minutes() -> int:
+    """Seuil (en minutes) au-delà duquel une commande bloquée en DELIVERING
+    déclenche une alerte DELIVERY_DELAY. Lu depuis DELIVERY_DELAY_MINUTES,
+    défaut 45 si absent du .env."""
+    return int(os.getenv("DELIVERY_DELAY_MINUTES", "45"))
