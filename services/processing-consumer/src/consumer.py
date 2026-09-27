@@ -184,15 +184,24 @@ def main():
 
     logger.info("Processing Consumer démarré, écoute sur '%s' et '%s'...", GPS_TOPIC, ORDERS_TOPIC)
 
-    for message in consumer:
-        event = message.value
-        logger.info("Message reçu [%s]: %s", message.topic, event)
+    try:
+        for message in consumer:
+            event = message.value
+            # DEBUG plutôt que INFO : utile en investigation ponctuelle,
+            # mais trop verbeux pour tourner en continu sur un flux GPS
+            # haute fréquence (section 4 du cahier des charges).
+            logger.debug("Message reçu [%s]: %s", message.topic, event)
 
-        success = process_message(conn, message.topic, event)
+            success = process_message(conn, message.topic, event)
 
-        if success:
-            consumer.commit()
-            logger.info("Offset committé (%s, event_id=%s)", message.topic, event.get("event_id"))
+            if success:
+                consumer.commit()
+                logger.info("Offset committé (%s, event_id=%s)", message.topic, event.get("event_id"))
+    except KeyboardInterrupt:
+        logger.info("Arrêt demandé (Ctrl+C).")
+    finally:
+        consumer.close()
+        conn.close()
 
 
 if __name__ == "__main__":
