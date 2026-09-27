@@ -13,7 +13,7 @@ temps réel / traitement par lot).
 ## Ce que ce projet démontre
 
 - Un événement traverse tout le système de bout en bout : source → Kafka → traitement → PostgreSQL → dashboard.
-- **Le système survit à un crash du Consumer sans créer de doublons** (idempotence transactionnelle, validée par un test de crash dédié — voir plus bas).
+- **Le système survit à un crash du Consumer sans créer de doublons** (idempotence transactionnelle, validée par un test de crash dédié et un test d'intégration automatisé — voir plus bas).
 - **Le traitement temps réel (par événement) est séparé du traitement analytique (par lot)** : les règles qui détectent une absence ou un dépassement de délai (livreur inactif, retard de livraison) ne peuvent pas se déclencher au passage d'un événement — elles sont donc évaluées par un scan périodique, pas dans le flux Kafka.
 
 ## Architecture
@@ -41,6 +41,7 @@ Sources (PostgreSQL + GPS Simulator)
 | Orchestration | Docker Compose (volumes nommés pour la persistance) |
 | UI Kafka | Kafbat v1.1.0 |
 | Dashboard BI | Metabase v0.51.4 |
+| Tests | pytest (unitaires + intégration) |
 
 ## Lancer le projet
 
@@ -48,7 +49,7 @@ Prérequis : Docker + Docker Compose installés.
 
 ```powershell
 git clone https://github.com/fsouida1-ux/Real-Time-Delivery-and-Fleet-Monitoring-Plateform.git
-cd delivery-platform
+cd Real-Time-Delivery-and-Fleet-Monitoring-Plateform
 copy .env.example .env   # ajuster les valeurs si besoin
 docker compose up --build
 ```
@@ -74,14 +75,30 @@ delivery-platform/
 │   ├── processing-consumer/          # Validation, déduplication, cleaning, écriture PostgreSQL, commit manuel
 │   └── metrics-aggregator/           # Boucle 30s : agrégations + scans périodiques (DRIVER_INACTIVE, DELIVERY_DELAY)
 ├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── crash_test/
-├── docs/architecture.md              # Diagramme d'architecture (Mermaid)
+│   ├── conftest.py                   # Rend les modules des services importables depuis les tests
+│   ├── unit/                         # pytest — validation.py, cleaning.py (fonctions pures, sans dépendance externe)
+│   ├── integration/                  # pytest — idempotence GPS avec une vraie base PostgreSQL
+│   ├── manual/                       # Scripts à exécuter à la main (test_duplicate.py, crash test batch, etc.)
+├── docs/
+│   ├── architecture.md               # Diagramme d'architecture (Mermaid)
+│   └── dashboard-screenshot.png
 ├── docker-compose.yml
 ├── pyproject.toml                    # Config du package delivery_shared
 └── .env.example                      # Variables d'environnement attendues (copier en .env)
 ```
+
+## Tests
+
+```powershell
+cd shared\python
+pip install -e ".[dev]"
+cd ..\..
+pytest tests/unit tests/integration -v
+```
+
+- **`tests/unit/`** — 12 tests, aucune dépendance externe : chaque règle de validation (section 6.2 du cahier des charges) et chaque transformation de `cleaning.py`.
+- **`tests/integration/`** — nécessite `docker compose up postgres` : republie deux fois le même `event_id` et vérifie automatiquement qu'aucune ligne dupliquée n'est créée, en base réelle.
+- **`tests/manual/`** — scripts sans assertions, à lancer à la main pendant le développement (publier un événement anormal, un lot pour le crash test, etc.).
 
 ## Preuve de robustesse — test de crash
 
@@ -94,7 +111,7 @@ Protocole exécuté (section 13 du cahier des charges technique) :
 
 **Résultat :** les événements non committés ont été rejoués par Kafka depuis le dernier offset committé, et **zéro doublon** créé — ni dans `processed_events` (contrainte `UNIQUE(event_id)`), ni dans `driver_positions`. 60/60 événements traités au total.
 
-C'est la contrainte `ON CONFLICT (event_id) DO NOTHING` sur `processed_events`, combinée à la vérification et l'écriture métier dans **la même transaction PostgreSQL**, qui rend ce résultat garanti et pas seulement observé par chance.
+C'est la contrainte `ON CONFLICT (event_id) DO NOTHING` sur `processed_events`, combinée à la vérification et l'écriture métier dans **la même transaction PostgreSQL**, qui rend ce résultat garanti et pas seulement observé par chance. Ce scénario est désormais aussi couvert par un test automatisé (`tests/integration/`).
 
 ## Dashboard
 
@@ -107,6 +124,7 @@ C'est la contrainte `ON CONFLICT (event_id) DO NOTHING` sur `processed_events`, 
 - **Configuration Metabase non versionnée** : la connexion à la base, les questions et le dashboard vivent uniquement dans le store interne de Metabase (persistant via le volume Docker `metabase-data`). Si ce volume est perdu, la configuration doit être recréée manuellement via l'UI — ce n'est pas reproductible par `docker compose up` seul.
 - **Pas d'optimisation de performance** : l'objectif du MVP est la compréhension de l'architecture, pas le débit (cf. section 1.2 du cahier des charges).
 - **Un seul producer/consumer par service** : pas de scaling horizontal démontré (voir Extensions ci-dessous).
+- **Tests d'intégration limités** : seule l'idempotence GPS est couverte automatiquement ; le crash test lui-même (kill -9 réel) reste manuel.
 
 ## Extensions possibles
 
